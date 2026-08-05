@@ -37,6 +37,7 @@ import { dashboardFallbackArgs, sourceDeclaresServe } from './backend-command'
 import { createBackendConnectionState } from './backend-connection-state'
 import { buildDesktopBackendEnv, hermesManagedNodePathEntries, normalizeHermesHomeRoot } from './backend-env'
 import { isReauthRequiredError, waitForHermesReady } from './backend-health'
+import { createBackendSupervisor } from './backend-supervisor'
 import {
   canImportHermesCli,
   execProbeSync,
@@ -1054,6 +1055,16 @@ const remoteRevalidation = new RemoteRevalidationCoordinator()
 // True while connection-config:apply soft-rehomes the primary — suppresses the
 // backend-exit toast so an intentional kill doesn't look like a crash.
 let softRehomeInProgress = false
+// Runtime supervision for the PRIMARY local backend (see backend-supervisor.ts).
+// ONE module-level supervisor so the forced-restart budget survives respawns —
+// a backend that hangs again after every respawn must eventually exhaust the
+// budget and surface, not get a fresh budget with each new child. The probe
+// and kill target rebind per boot via this mutable reference.
+// Restart goes through the renderer's existing reconnect path: we kill the
+// unresponsive child, sendBackendExit() surfaces it, and the renderer's
+// backoff loop calls hermes:connection → startHermes() which spawns fresh.
+let supervisedBackend: { baseUrl: string; child: ReturnType<typeof spawn> } | null = null
+let backendSupervisor: ReturnType<typeof createBackendSupervisor> | null = null
 // Additional per-profile backends, keyed by profile name. The PRIMARY backend
 // (the desktop's launch profile) stays managed by backendConnectionState +
 // startHermes(); this pool only holds EXTRA profile
@@ -8563,6 +8574,11 @@ async function startHermes() {
       rejectBackendStart?.(error)
     })
     hermesProcess.once('exit', (code, signal) => {
+      // The supervised process is gone (crash, supervised kill, or teardown);
+      // stop probing its dead port. The next successful startHermes() installs
+      // a fresh supervisor for the replacement child.
+      backendSupervisor?.stop()
+
       if (!backendConnectionState.clearForCurrentProcess(processOwner)) {
         rememberLog(`Ignoring stale Hermes backend exit (${signal || code})`)
 
@@ -8635,6 +8651,57 @@ async function startHermes() {
       running: true,
       error: null
     })
+
+    // Runtime supervision: startup readiness proved the backend came up; this
+    // keeps watching that it stays responsive. On sustained /api/health
+    // failure the child is group-killed — its 'exit' handler then surfaces
+    // the stop and the renderer's existing reconnect backoff respawns it via
+    // hermes:connection → startHermes(). The supervisor instance is created
+    // once and only RE-TARGETED per boot, so the forced-restart budget spans
+    // respawns: a backend that hangs after every respawn exhausts the budget
+    // and surfaces a persistent error instead of silently hot-looping.
+    supervisedBackend = { baseUrl, child: hermesProcess }
+
+    if (!backendSupervisor) {
+      backendSupervisor = createBackendSupervisor({
+        probe: () => {
+          const target = supervisedBackend
+
+          if (!target) {
+            return Promise.resolve()
+          }
+
+          return fetchPublicJson(`${target.baseUrl}/api/health`, { timeoutMs: 5000 })
+        },
+        onUnresponsive: ({ consecutiveFailures, lastError }) => {
+          rememberLog(
+            `Backend unresponsive (${consecutiveFailures} consecutive health failures, last: ${lastError}) — forcing restart`
+          )
+
+          if (!backendSupervisor?.recordRestart()) {
+            // Budget exhausted; onGaveUp already surfaced it. Leave the child
+            // alone — killing it again would loop the same broken respawn.
+            return
+          }
+
+          // Group-kill so MCP grandchildren die too; the 'exit' handler emits
+          // hermes:backend-exit and the renderer reconnect loop respawns.
+          stopBackendChild(supervisedBackend?.child)
+        },
+        onGaveUp: ({ restarts, windowMs }) => {
+          rememberLog(
+            `Backend supervision gave up after ${restarts} forced restarts within ${Math.round(windowMs / 1000)}s — manual recovery required`
+          )
+          sendBackendExit({
+            code: null,
+            signal: null,
+            error: `Hermes backend was restarted ${restarts} times but keeps hanging. Check ${DESKTOP_LOG_PATH} and restart the app.`
+          })
+        },
+        log: rememberLog
+      })
+    }
+    backendSupervisor.start()
 
     // A successful boot (including a soft restart that the repair-guard
     // chose over a hard reinstall, see #74874) means any in-flight repair
