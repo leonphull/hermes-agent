@@ -832,10 +832,13 @@ test('buildSpawnCommand always uses serve, never dashboard', () => {
   assert.doesNotMatch(cmd, /--no-open/)
 })
 
-test('buildSpawnCommand raises the SSH child file limit before execing Hermes', () => {
+test('buildSpawnCommand raises only the SSH child soft file limit before execing Hermes', () => {
   const cmd = buildSpawnCommand('/x/hermes', '', { logPath: spawnLogPath(OWNERSHIP_ID, SPAWN_NONCE) })
-  assert.match(cmd, /ulimit -n 65536 2>\/dev\/null \|\| true; exec env HERMES_DESKTOP=1/)
-  assert.ok(cmd.indexOf('ulimit -n 65536') < cmd.indexOf('serve --isolated'))
+  assert.match(cmd, /h=\$\(ulimit -H -n 2>\/dev\/null \|\| printf/)
+  assert.match(cmd, /unlimited\) t=65536/)
+  assert.match(cmd, /ulimit -S -n "\$t" 2>\/dev\/null \|\| true; exec env HERMES_DESKTOP=1/)
+  assert.doesNotMatch(cmd, /(?:^|[ ;])ulimit -n 65536/)
+  assert.ok(cmd.indexOf('ulimit -S -n') < cmd.indexOf('serve --isolated'))
 })
 
 test('spawnRemoteDashboard removes a token file when upload reporting fails', async () => {

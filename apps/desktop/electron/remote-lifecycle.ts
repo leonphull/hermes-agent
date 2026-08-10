@@ -39,9 +39,11 @@ const DEFAULT_READY_TIMEOUT_MS = 45_000
 const READY_POLL_INTERVAL_MS = 750
 // macOS sshd starts non-interactive shells with a 256-FD soft limit even when
 // the hard limit is unlimited. A Desktop backend can legitimately exceed that
-// while serving several profiles/tools, so raise only the child process limit.
-// Keep startup portable: restricted hosts retain their existing limit.
+// while serving several profiles/tools, so raise only the child soft limit.
+// Clamp to finite host policy rather than failing back to 256 when 65,536 is
+// unavailable. Unknown limit output gets a conservative best-effort fallback.
 const REMOTE_NOFILE_SOFT_LIMIT = 65_536
+const REMOTE_NOFILE_FALLBACK_LIMIT = 4_096
 
 function mintToken() {
   return crypto.randomBytes(32).toString('hex')
@@ -448,9 +450,15 @@ function buildSpawnCommand(hermesPath, profile, opts: any = {}) {
   const ownerArg = opts.spawnNonce ? ` --ssh-owner-nonce ${validateSpawnNonce(opts.spawnNonce)}` : ''
   const subCmd = `serve --isolated --host 127.0.0.1 --port 0${tokenArg}${ownerArg}`
 
-  const dashCmd =
-    `ulimit -n ${REMOTE_NOFILE_SOFT_LIMIT} 2>/dev/null || true; ` +
-    `exec env HERMES_DESKTOP=1 ${hermes} ${profileArgs}${subCmd}`
+  const nofileCmd =
+    `h=$(ulimit -H -n 2>/dev/null || printf ''); ` +
+    `case "$h" in unlimited) t=${REMOTE_NOFILE_SOFT_LIMIT} ;; ` +
+    `''|*[!0-9]*) t=${REMOTE_NOFILE_FALLBACK_LIMIT} ;; ` +
+    `*) if test "$h" -lt ${REMOTE_NOFILE_SOFT_LIMIT}; then t="$h"; ` +
+    `else t=${REMOTE_NOFILE_SOFT_LIMIT}; fi ;; esac; ` +
+    `ulimit -S -n "$t" 2>/dev/null || true`
+
+  const dashCmd = `${nofileCmd}; exec env HERMES_DESKTOP=1 ${hermes} ${profileArgs}${subCmd}`
 
   return (
     `mkdir -p "$(dirname ${logPath})" && ` +
