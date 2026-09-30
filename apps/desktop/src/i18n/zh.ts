@@ -2263,6 +2263,8 @@ export const zh: Translations = {
     remotePickerTitle: '选择远程文件夹',
     remotePickerDescription: '浏览已连接后端上的文件夹。',
     remotePickerSelect: '选择文件夹',
+    remotePickerSearch: '搜索文件夹…',
+    remotePickerNoMatches: '没有与搜索匹配的文件夹。',
     folderTip: cwd => `${cwd} — 点击更改文件夹`,
     openFolder: '打开文件夹',
     refreshTree: '刷新文件树',

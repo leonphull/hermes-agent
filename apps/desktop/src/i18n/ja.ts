@@ -2074,6 +2074,8 @@ export const ja = defineLocale({
     remotePickerTitle: 'リモートフォルダーを選択',
     remotePickerDescription: '接続中のバックエンド上のフォルダーを参照します。',
     remotePickerSelect: 'フォルダーを選択',
+    remotePickerSearch: 'フォルダーを検索…',
+    remotePickerNoMatches: '検索に一致するフォルダーがありません。',
     folderTip: cwd => `${cwd} — クリックしてフォルダーを変更`,
     openFolder: 'フォルダーを開く',
     refreshTree: 'ツリーを更新',

@@ -2011,6 +2011,8 @@ export const zhHant = defineLocale({
     remotePickerTitle: '選擇遠端資料夾',
     remotePickerDescription: '瀏覽已連線後端上的資料夾。',
     remotePickerSelect: '選擇資料夾',
+    remotePickerSearch: '搜尋資料夾…',
+    remotePickerNoMatches: '沒有符合搜尋的資料夾。',
     folderTip: cwd => `${cwd} — 點擊以變更資料夾`,
     openFolder: '開啟資料夾',
     refreshTree: '重新整理檔案樹',

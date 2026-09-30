@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { useI18n } from '@/i18n'
 import { readDesktopDir, setDesktopFsRemotePicker } from '@/lib/desktop-fs'
+import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
 
 function clean(path: string) {
@@ -27,6 +29,20 @@ function pathName(path: string) {
   return path.split('/').filter(Boolean).pop() || path
 }
 
+/**
+ * The picker's filter semantics: case-insensitive substring match on the
+ * folder name, query trimmed. Exported for tests.
+ */
+export function filterFolderEntries<T extends { name: string }>(entries: T[], query: string): T[] {
+  const needle = normalize(query)
+
+  if (!needle) {
+    return entries
+  }
+
+  return entries.filter(entry => entry.name.toLowerCase().includes(needle))
+}
+
 interface PendingSelection {
   defaultPath: string
   resolve: (paths: string[]) => void
@@ -41,6 +57,7 @@ export function RemoteFolderPicker() {
   const [entries, setEntries] = useState<Array<{ name: string; path: string }>>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [query, setQuery] = useState('')
 
   useEffect(() => {
     setDesktopFsRemotePicker({
@@ -48,6 +65,7 @@ export function RemoteFolderPicker() {
         new Promise(resolve => {
           const defaultPath = clean(options?.defaultPath || '/')
           setCurrentPath(defaultPath)
+          setQuery('')
           setPending({ defaultPath, resolve, title: options?.title || r.remotePickerTitle })
         })
     })
@@ -116,11 +134,31 @@ export function RemoteFolderPicker() {
     setPending(null)
     setEntries([])
     setError(null)
+    setQuery('')
   }
+
+  // Navigating to another directory drops the filter — the query named a
+  // folder in the listing you just left.
+  const navigate = (path: string) => {
+    setQuery('')
+    setCurrentPath(path)
+  }
+
+  const visibleEntries = useMemo(() => filterFolderEntries(entries, query), [entries, query])
 
   return (
     <Dialog onOpenChange={open => !open && close()} open={Boolean(pending)}>
-      <DialogContent className="flex h-[min(36rem,calc(100vh-4rem))] max-w-lg flex-col gap-0 overflow-hidden p-0">
+      <DialogContent
+        className="flex h-[min(36rem,calc(100vh-4rem))] max-w-lg flex-col gap-0 overflow-hidden p-0"
+        onEscapeKeyDown={event => {
+          // First Esc clears the filter; only an Esc on an empty query
+          // falls through to the dialog's own dismiss.
+          if (query !== '') {
+            event.preventDefault()
+            setQuery('')
+          }
+        }}
+      >
         <div className="shrink-0 border-b border-border/70 px-4 py-3">
           <DialogTitle className="text-sm">{pending?.title || r.remotePickerTitle}</DialogTitle>
           <DialogDescription className="mt-1 text-xs">{r.remotePickerDescription}</DialogDescription>
@@ -135,7 +173,7 @@ export function RemoteFolderPicker() {
                   index === crumbs.length - 1 && 'text-foreground'
                 )}
                 key={crumb.path}
-                onClick={() => setCurrentPath(crumb.path)}
+                onClick={() => navigate(crumb.path)}
                 type="button"
               >
                 {crumb.label}
@@ -143,11 +181,28 @@ export function RemoteFolderPicker() {
             ))}
           </div>
 
+          <div className="shrink-0 border-b border-border/50 px-3 py-2">
+            <div className="relative">
+              <Codicon
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                name="search"
+                size="0.875rem"
+              />
+              <Input
+                autoFocus
+                className="pl-7"
+                onChange={event => setQuery(event.target.value)}
+                placeholder={r.remotePickerSearch}
+                value={query}
+              />
+            </div>
+          </div>
+
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             <FolderRow
               disabled={currentPath === '/'}
               name=".."
-              onClick={() => setCurrentPath(parentDir(currentPath))}
+              onClick={() => navigate(parentDir(currentPath))}
             />
             {loading ? (
               <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
@@ -158,9 +213,11 @@ export function RemoteFolderPicker() {
               <div className="px-2 py-3 text-xs text-destructive">{r.unreadableBody(error)}</div>
             ) : entries.length === 0 ? (
               <div className="px-2 py-3 text-xs text-muted-foreground">{r.emptyBody}</div>
+            ) : visibleEntries.length === 0 ? (
+              <div className="px-2 py-3 text-xs text-muted-foreground">{r.remotePickerNoMatches}</div>
             ) : (
-              entries.map(entry => (
-                <FolderRow key={entry.path} name={pathName(entry.path)} onClick={() => setCurrentPath(entry.path)} />
+              visibleEntries.map(entry => (
+                <FolderRow key={entry.path} name={pathName(entry.path)} onClick={() => navigate(entry.path)} />
               ))
             )}
           </div>

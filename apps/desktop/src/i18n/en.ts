@@ -2096,6 +2096,8 @@ export const en: Translations = {
     remotePickerTitle: 'Choose remote folder',
     remotePickerDescription: 'Browse folders on the connected backend.',
     remotePickerSelect: 'Select folder',
+    remotePickerSearch: 'Search folders…',
+    remotePickerNoMatches: 'No folders match your search.',
     folderTip: cwd => `${cwd} — click to change folder`,
     openFolder: 'Open folder',
     refreshTree: 'Refresh tree',
