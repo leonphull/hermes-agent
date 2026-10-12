@@ -649,7 +649,8 @@ describe('Hermes REST helpers', () => {
       AUDIO_TRANSCRIBE_MIN_REQUEST_TIMEOUT_MS
     )
     expect(audioTranscribeRequestTimeoutMs('x'.repeat(3_000_000))).toBeLessThan(AUDIO_TRANSCRIBE_MAX_REQUEST_TIMEOUT_MS)
-    expect(audioTranscribeRequestTimeoutMs('x'.repeat(9_000_000))).toBe(AUDIO_TRANSCRIBE_MAX_REQUEST_TIMEOUT_MS)
+    // 18M chars × 0.1 ms/char saturates the ceiling (30-minute takes allowed).
+    expect(audioTranscribeRequestTimeoutMs('x'.repeat(18_000_000))).toBe(AUDIO_TRANSCRIBE_MAX_REQUEST_TIMEOUT_MS)
   })
 
   it('uses an extended timeout for blocking transcription', async () => {

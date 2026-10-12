@@ -32,8 +32,16 @@ import { setChatFontFamilyFromConfig } from '@/themes/chat-font'
 
 const DEFAULT_VOICE_SECONDS = 120
 
+// Dictation hard ceiling — use-voice-recorder.ts clamps to the same value, so
+// a config value above it cannot promise a take the recorder would cut off.
+const MAX_RECORDING_SECONDS = 1800
+
 function recordingLimit(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : DEFAULT_VOICE_SECONDS
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_VOICE_SECONDS
+  }
+
+  return Math.min(value, MAX_RECORDING_SECONDS)
 }
 
 /** config.yaml hands back whatever the user wrote — `reasoning_effort: false`

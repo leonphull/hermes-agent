@@ -67,10 +67,6 @@ export interface VoiceClientConfig {
 // ---------------------------------------------------------------------------
 
 const CONFIG_TTL_MS = 60_000
-// Per-request cap on a direct STT upload; the gateway's stt timeout is not part of the
-// client config, so this mirrors its 60s default rather than hanging dictation forever.
-const STT_REQUEST_TIMEOUT_MS = 60_000
-
 let cached: { key: string; at: number; config: VoiceClientConfig } | null = null
 let inflight: { key: string; promise: Promise<null | VoiceClientConfig> } | null = null
 
@@ -319,7 +315,6 @@ export async function transcribeAudioClientDirect(audio: Blob, owner?: ResolvedO
       method: 'POST',
       headers: { Authorization: `Bearer ${stt.api_key}` },
       body: form,
-      signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS)
     })
 
     if (!response.ok) {
@@ -338,7 +333,6 @@ export async function transcribeAudioClientDirect(audio: Blob, owner?: ResolvedO
       method: 'POST',
       headers: { Authorization: `Bearer ${stt.api_key}` },
       body: xaiSttForm(audio, stt),
-      signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS)
     })
 
     if (!response.ok) {
@@ -368,7 +362,6 @@ export async function transcribeAudioClientDirect(audio: Blob, owner?: ResolvedO
       method: 'POST',
       headers: { 'xi-api-key': stt.api_key },
       body: form,
-      signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS)
     })
 
     if (!response.ok) {

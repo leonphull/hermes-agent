@@ -192,7 +192,7 @@ export function useVoiceRecorder({
       setVoiceStatus('recording')
       recordFeatureUse('voice_dictation')
       intervalRef.current = window.setInterval(() => setElapsedSeconds((Date.now() - startedAtRef.current) / 1000), 250)
-      const cap = Math.max(1, Math.min(Math.trunc(maxRecordingSeconds), 600))
+      const cap = Math.max(1, Math.min(Math.trunc(maxRecordingSeconds), 1800))
       timeoutRef.current = window.setTimeout(() => void stop(), cap * 1000)
     } catch (error) {
       setVoiceStatus('idle')

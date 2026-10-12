@@ -39,7 +39,7 @@ export function audioSpeakRequestTimeoutMs(text: string): number {
 }
 
 export const AUDIO_TRANSCRIBE_MIN_REQUEST_TIMEOUT_MS = 180_000
-export const AUDIO_TRANSCRIBE_MAX_REQUEST_TIMEOUT_MS = 600_000
+export const AUDIO_TRANSCRIBE_MAX_REQUEST_TIMEOUT_MS = 1_800_000
 // The transcribe payload is the base64 audio data URL itself, so its string
 // length tracks clip size. ~0.1ms/char keeps short clips at the floor while
 // letting multi-minute recordings scale toward the cap (a base64 char is
