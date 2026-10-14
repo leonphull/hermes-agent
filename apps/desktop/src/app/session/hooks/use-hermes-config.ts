@@ -4,6 +4,7 @@ import { setTerminalFontFamilyFromConfig } from '@/app/right-sidebar/terminal/te
 import { getHermesConfig, getHermesConfigDefaults } from '@/hermes'
 import { BUILTIN_PERSONALITIES, normalizePersonalityValue, personalityNamesFromConfig } from '@/lib/chat-runtime'
 import { composerServiceTier } from '@/lib/model-status-label'
+import { persistString, storedString } from '@/lib/storage'
 import { normalize } from '@/lib/text'
 import { setDisplayTimestampsFromConfig } from '@/store/display-timestamps'
 import { setShowReasoningFromConfig } from '@/store/reasoning-disclosure'
@@ -36,12 +37,25 @@ const DEFAULT_VOICE_SECONDS = 120
 // a config value above it cannot promise a take the recorder would cut off.
 const MAX_RECORDING_SECONDS = 1800
 
+// The last limit a backend resolved. The renderer only learns the configured
+// limit from /api/config, and that request can time out or be cancelled on
+// boot (SSH backends, profile switches) — without a remembered value every
+// such miss silently re-arms the 120 s fallback and cuts long dictation off.
+const VOICE_LIMIT_KEY = 'hermes.desktop.voiceMaxRecordingSeconds.v1'
+
 function recordingLimit(value: unknown) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     return DEFAULT_VOICE_SECONDS
   }
 
   return Math.min(value, MAX_RECORDING_SECONDS)
+}
+
+/** Seed for the first render: the last persisted limit, else the documented default. */
+function storedRecordingLimit(): number {
+  const raw = storedString(VOICE_LIMIT_KEY)
+
+  return raw === null ? DEFAULT_VOICE_SECONDS : recordingLimit(Number(raw))
 }
 
 /** config.yaml hands back whatever the user wrote — `reasoning_effort: false`
@@ -66,7 +80,7 @@ interface HermesConfigOptions {
 }
 
 export function useHermesConfig({ activeSessionIdRef }: HermesConfigOptions) {
-  const [voiceMaxRecordingSeconds, setVoiceMaxRecordingSeconds] = useState(DEFAULT_VOICE_SECONDS)
+  const [voiceMaxRecordingSeconds, setVoiceMaxRecordingSeconds] = useState(storedRecordingLimit)
   const [sttEnabled, setSttEnabled] = useState(true)
   const profileRefreshEpochRef = useRef(0)
 
@@ -144,7 +158,9 @@ export function useHermesConfig({ activeSessionIdRef }: HermesConfigOptions) {
           return
         }
 
-        setVoiceMaxRecordingSeconds(recordingLimit(config.voice?.max_recording_seconds))
+        const limit = recordingLimit(config.voice?.max_recording_seconds)
+        setVoiceMaxRecordingSeconds(limit)
+        persistString(VOICE_LIMIT_KEY, String(limit))
         setSttEnabled(config.stt?.enabled !== false)
 
         if (!canPublish()) {

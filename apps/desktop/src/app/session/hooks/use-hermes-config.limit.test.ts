@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getHermesConfig } from '@/hermes'
+import { persistString, storedString } from '@/lib/storage'
 
 import { useHermesConfig } from './use-hermes-config'
 
@@ -19,9 +20,12 @@ vi.mock('@/hermes', () => ({
 const mockConfig = (config: Record<string, unknown>) =>
   vi.mocked(getHermesConfig).mockResolvedValue(config as Awaited<ReturnType<typeof getHermesConfig>>)
 
+const VOICE_LIMIT_KEY = 'hermes.desktop.voiceMaxRecordingSeconds.v1'
+
 describe('useHermesConfig voice.max_recording_seconds clamping', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    persistString(VOICE_LIMIT_KEY, null)
   })
 
   async function renderedLimit(config: Record<string, unknown>): Promise<number> {
@@ -53,5 +57,46 @@ describe('useHermesConfig voice.max_recording_seconds clamping', () => {
 
   it('keeps a small custom value', async () => {
     expect(await renderedLimit({ voice: { max_recording_seconds: 30 } })).toBe(30)
+  })
+
+  // A backend that answers slowly (SSH, profile switch) used to leave the
+  // renderer on the 120 s fallback until the next successful refresh — every
+  // long take in between was cut off at two minutes.
+  it('persists the resolved limit for the next boot', async () => {
+    expect(await renderedLimit({ voice: { max_recording_seconds: 1800 } })).toBe(1800)
+    expect(storedString(VOICE_LIMIT_KEY)).toBe('1800')
+  })
+
+  it('seeds the first render from the last persisted limit before /api/config answers', () => {
+    persistString(VOICE_LIMIT_KEY, '1800')
+    mockConfig({})
+    const { result } = renderHook(() => useHermesConfig({ activeSessionIdRef: { current: null } }))
+
+    expect(result.current.voiceMaxRecordingSeconds).toBe(1800)
+  })
+
+  it('keeps the persisted limit when the config request fails', async () => {
+    persistString(VOICE_LIMIT_KEY, '1800')
+    vi.mocked(getHermesConfig).mockRejectedValue(new Error('Timed out connecting to Hermes backend'))
+    const { result } = renderHook(() => useHermesConfig({ activeSessionIdRef: { current: null } }))
+
+    await act(async () => {
+      await result.current.refreshHermesConfig()
+    })
+
+    expect(result.current.voiceMaxRecordingSeconds).toBe(1800)
+  })
+
+  it('clamps and falls back on a corrupt persisted value', () => {
+    persistString(VOICE_LIMIT_KEY, 'abc')
+    mockConfig({})
+    const corrupt = renderHook(() => useHermesConfig({ activeSessionIdRef: { current: null } }))
+
+    expect(corrupt.result.current.voiceMaxRecordingSeconds).toBe(120)
+
+    persistString(VOICE_LIMIT_KEY, '7200')
+    const oversized = renderHook(() => useHermesConfig({ activeSessionIdRef: { current: null } }))
+
+    expect(oversized.result.current.voiceMaxRecordingSeconds).toBe(1800)
   })
 })
