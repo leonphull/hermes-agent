@@ -122,7 +122,10 @@ export function ChatBar({
   focusKey,
   freshDraftKey,
   gateway,
-  maxRecordingSeconds = 120,
+  // No default: an absent prop means "the configured limit" (see
+  // `$voiceMaxRecordingSeconds`), so a ChatBar mounted without the main
+  // window's prop plumbing (session tiles) is not silently capped at 120 s.
+  maxRecordingSeconds,
   profile,
   queueSessionKey,
   sessionId,

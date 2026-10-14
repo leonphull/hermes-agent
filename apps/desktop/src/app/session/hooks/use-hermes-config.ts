@@ -1,10 +1,10 @@
+import { useStore } from '@nanostores/react'
 import { type MutableRefObject, useCallback, useRef, useState } from 'react'
 
 import { setTerminalFontFamilyFromConfig } from '@/app/right-sidebar/terminal/terminal-font'
 import { getHermesConfig, getHermesConfigDefaults } from '@/hermes'
 import { BUILTIN_PERSONALITIES, normalizePersonalityValue, personalityNamesFromConfig } from '@/lib/chat-runtime'
 import { composerServiceTier } from '@/lib/model-status-label'
-import { persistString, storedString } from '@/lib/storage'
 import { normalize } from '@/lib/text'
 import { setDisplayTimestampsFromConfig } from '@/store/display-timestamps'
 import { setShowReasoningFromConfig } from '@/store/reasoning-disclosure'
@@ -29,34 +29,8 @@ import {
   applyVoiceSilenceMsFromConfig,
   applyVoiceStopPhraseFromConfig
 } from '@/store/voice-prefs'
+import { $voiceMaxRecordingSeconds, applyVoiceMaxRecordingSecondsFromConfig } from '@/store/voice-recording-limit'
 import { setChatFontFamilyFromConfig } from '@/themes/chat-font'
-
-const DEFAULT_VOICE_SECONDS = 120
-
-// Dictation hard ceiling — use-voice-recorder.ts clamps to the same value, so
-// a config value above it cannot promise a take the recorder would cut off.
-const MAX_RECORDING_SECONDS = 1800
-
-// The last limit a backend resolved. The renderer only learns the configured
-// limit from /api/config, and that request can time out or be cancelled on
-// boot (SSH backends, profile switches) — without a remembered value every
-// such miss silently re-arms the 120 s fallback and cuts long dictation off.
-const VOICE_LIMIT_KEY = 'hermes.desktop.voiceMaxRecordingSeconds.v1'
-
-function recordingLimit(value: unknown) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return DEFAULT_VOICE_SECONDS
-  }
-
-  return Math.min(value, MAX_RECORDING_SECONDS)
-}
-
-/** Seed for the first render: the last persisted limit, else the documented default. */
-function storedRecordingLimit(): number {
-  const raw = storedString(VOICE_LIMIT_KEY)
-
-  return raw === null ? DEFAULT_VOICE_SECONDS : recordingLimit(Number(raw))
-}
 
 /** config.yaml hands back whatever the user wrote — `reasoning_effort: false`
  *  (or `off`/`no`, which YAML also parses to boolean false) means thinking
@@ -80,7 +54,10 @@ interface HermesConfigOptions {
 }
 
 export function useHermesConfig({ activeSessionIdRef }: HermesConfigOptions) {
-  const [voiceMaxRecordingSeconds, setVoiceMaxRecordingSeconds] = useState(storedRecordingLimit)
+  // The dictation limit lives in a store (`$voiceMaxRecordingSeconds`): the
+  // session-tile composers read it directly, so they no longer depend on the
+  // main window threading a prop down to them.
+  const voiceMaxRecordingSeconds = useStore($voiceMaxRecordingSeconds)
   const [sttEnabled, setSttEnabled] = useState(true)
   const profileRefreshEpochRef = useRef(0)
 
@@ -158,9 +135,7 @@ export function useHermesConfig({ activeSessionIdRef }: HermesConfigOptions) {
           return
         }
 
-        const limit = recordingLimit(config.voice?.max_recording_seconds)
-        setVoiceMaxRecordingSeconds(limit)
-        persistString(VOICE_LIMIT_KEY, String(limit))
+        applyVoiceMaxRecordingSecondsFromConfig(config)
         setSttEnabled(config.stt?.enabled !== false)
 
         if (!canPublish()) {

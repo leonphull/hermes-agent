@@ -40,7 +40,8 @@ interface UseComposerVoiceArgs {
   disabled: boolean
   focusInput: () => void
   insertText: (text: string) => void
-  maxRecordingSeconds: number
+  /** Explicit dictation auto-stop; absent = the configured limit from `$voiceMaxRecordingSeconds`. */
+  maxRecordingSeconds?: number
   /** Interrupt the in-flight agent turn (Stop-button seam) — fired when the
    *  user speaks over the model while it is still generating. */
   onInterrupt?: () => Promise<void> | void

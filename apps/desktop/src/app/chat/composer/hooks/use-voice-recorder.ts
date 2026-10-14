@@ -7,6 +7,7 @@ import { fetchVoiceClientConfigFor } from '@/lib/voice-client-direct'
 import { type DictationStreamSession, openDictationStream } from '@/lib/voice-stream'
 import { recordFeatureUse } from '@/store/desktop-metrics'
 import { notify, notifyError } from '@/store/notifications'
+import { $voiceMaxRecordingSeconds, MAX_VOICE_RECORDING_SECONDS } from '@/store/voice-recording-limit'
 
 import { useComposerScope } from '../scope'
 import type { VoiceActivityState, VoiceStatus } from '../types'
@@ -14,7 +15,9 @@ import type { VoiceActivityState, VoiceStatus } from '../types'
 import { useMicRecorder } from './use-mic-recorder'
 
 interface VoiceRecorderOptions {
-  maxRecordingSeconds: number
+  /** Explicit auto-stop (seconds); absent = the configured `voice.max_recording_seconds`
+   *  from `$voiceMaxRecordingSeconds`, which every composer (main chat, session tiles) shares. */
+  maxRecordingSeconds?: number
   onTranscribeAudio?: (audio: Blob, owner?: ResolvedOwner) => Promise<string>
   focusInput: () => void
   onTranscript: (text: string) => void
@@ -192,7 +195,10 @@ export function useVoiceRecorder({
       setVoiceStatus('recording')
       recordFeatureUse('voice_dictation')
       intervalRef.current = window.setInterval(() => setElapsedSeconds((Date.now() - startedAtRef.current) / 1000), 250)
-      const cap = Math.max(1, Math.min(Math.trunc(maxRecordingSeconds), 1800))
+      // Read the configured limit at mic-open (not at mount): a config refresh
+      // that lands after this composer mounted must still govern the next take.
+      const limitSeconds = maxRecordingSeconds ?? $voiceMaxRecordingSeconds.get()
+      const cap = Math.max(1, Math.min(Math.trunc(limitSeconds), MAX_VOICE_RECORDING_SECONDS))
       timeoutRef.current = window.setTimeout(() => void stop(), cap * 1000)
     } catch (error) {
       setVoiceStatus('idle')

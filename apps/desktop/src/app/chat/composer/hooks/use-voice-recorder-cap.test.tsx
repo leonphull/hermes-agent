@@ -2,6 +2,8 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { $voiceMaxRecordingSeconds } from '@/store/voice-recording-limit'
+
 import type { MicRecording } from './use-mic-recorder'
 import { useVoiceRecorder } from './use-voice-recorder'
 
@@ -108,11 +110,14 @@ describe('useVoiceRecorder 30-minute dictation cap', () => {
     vi.useRealTimers()
   })
 
-  function renderRecorder(onTranscribeAudio: (audio: Blob, owner?: unknown) => Promise<string>) {
+  function renderRecorder(
+    onTranscribeAudio: (audio: Blob, owner?: unknown) => Promise<string>,
+    maxRecordingSeconds: number | undefined = 1800
+  ) {
     return renderHook(() =>
       useVoiceRecorder({
         focusInput: () => undefined,
-        maxRecordingSeconds: 1800,
+        maxRecordingSeconds,
         onTranscript: () => undefined,
         onTranscribeAudio
       })
@@ -165,6 +170,41 @@ describe('useVoiceRecorder 30-minute dictation cap', () => {
     expect(hook.result.current.voiceStatus).toBe('idle')
     await vi.waitFor(() => expect(transcribe).toHaveBeenCalledTimes(1))
     expect(transcribe.mock.calls[0][1]).toEqual(OWNER)
+  })
+
+  // Session-tile composers mount ChatBar without the main window's prop
+  // plumbing: they must honour the configured limit, not a 120 s default.
+  it('uses the configured limit from the store when no prop is passed', async () => {
+    $voiceMaxRecordingSeconds.set(1800)
+    const transcribe = vi.fn(async () => 'tile take')
+    const hook = renderRecorder(transcribe, undefined)
+    await startRecording(hook)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000 + 1_000)
+    })
+    expect(hook.result.current.voiceStatus).toBe('recording')
+    expect(micHandle.stop).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1800_000 - 121_000)
+    })
+    expect(micHandle.stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads the store at mic-open, so a late config refresh governs the next take', async () => {
+    $voiceMaxRecordingSeconds.set(120)
+    const transcribe = vi.fn(async () => 'late config')
+    const hook = renderRecorder(transcribe, undefined)
+    // Config answers after mount (SSH backend) — before the user presses the mic.
+    $voiceMaxRecordingSeconds.set(1800)
+    await startRecording(hook)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000 + 1_000)
+    })
+    expect(hook.result.current.voiceStatus).toBe('recording')
+    expect(micHandle.stop).not.toHaveBeenCalled()
   })
 
   it('does not auto-stop after a manual stop cleared the cap timer', async () => {
